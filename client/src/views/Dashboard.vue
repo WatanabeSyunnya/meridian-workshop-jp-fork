@@ -15,10 +15,10 @@
             <div class="kpi-header">
               <span class="kpi-label">{{ t('dashboard.kpi.inventoryTurnover') }}</span>
             </div>
-            <div class="kpi-value">4.2</div>
-            <div class="kpi-goal">{{ t('dashboard.kpi.goal') }}: 4.5 (-6.67%)</div>
+            <div class="kpi-value">{{ pendingLabel }}</div>
+            <div class="kpi-goal">{{ t('dashboard.kpi.goal') }}: 4.5</div>
             <div class="kpi-progress-bar">
-              <div class="kpi-progress" style="width: 93.33%"></div>
+              <div class="kpi-progress" style="width: 0%"></div>
             </div>
           </div>
 
@@ -37,10 +37,10 @@
             <div class="kpi-header">
               <span class="kpi-label">{{ t('dashboard.kpi.orderFillRate') }}</span>
             </div>
-            <div class="kpi-value">{{ fillRate }}%</div>
-            <div class="kpi-goal">{{ t('dashboard.kpi.goal') }}: 95% ({{ fillRate - 95 > 0 ? '+' : '' }}{{ (fillRate - 95).toFixed(2) }}%)</div>
+            <div class="kpi-value">{{ fillRate === null ? '—' : fillRate.toFixed(1) + '%' }}</div>
+            <div class="kpi-goal">{{ t('dashboard.kpi.goal') }}: 95%<template v-if="fillRate !== null"> ({{ fillRate - 95 > 0 ? '+' : '' }}{{ (fillRate - 95).toFixed(2) }}%)</template></div>
             <div class="kpi-progress-bar">
-              <div class="kpi-progress success" :style="{ width: (fillRate / 95 * 100) + '%' }"></div>
+              <div class="kpi-progress success" :style="{ width: fillRate === null ? '0%' : Math.min(fillRate / 95 * 100, 100) + '%' }"></div>
             </div>
           </div>
 
@@ -59,10 +59,10 @@
             <div class="kpi-header">
               <span class="kpi-label">{{ t('dashboard.kpi.avgProcessingTime') }}</span>
             </div>
-            <div class="kpi-value">2.8</div>
-            <div class="kpi-goal">{{ t('dashboard.kpi.goal') }}: 3.0 (-6.67%)</div>
+            <div class="kpi-value">{{ avgProcessingDays === null ? '—' : avgProcessingDays.toFixed(1) }}</div>
+            <div class="kpi-goal">{{ t('dashboard.kpi.goal') }}: 3.0<template v-if="avgProcessingDays !== null"> ({{ avgProcessingDays > 3 ? '+' : '' }}{{ ((avgProcessingDays / 3 - 1) * 100).toFixed(2) }}%)</template></div>
             <div class="kpi-progress-bar">
-              <div class="kpi-progress success" style="width: 93.33%"></div>
+              <div class="kpi-progress success" :style="{ width: avgProcessingDays === null ? '0%' : Math.min(avgProcessingDays / 3 * 100, 100) + '%' }"></div>
             </div>
           </div>
         </div>
@@ -312,7 +312,7 @@ export default {
     BacklogDetailModal,
   },
   setup() {
-    const { t, currentCurrency, translateProductName, translateWarehouse } = useI18n()
+    const { t, currentLocale, currentCurrency, translateProductName, translateWarehouse } = useI18n()
     const loading = ref(true)
     const error = ref(null)
     const summary = ref({})
@@ -337,8 +337,31 @@ export default {
       getCurrentFilters
     } = useFilters()
 
-    const ordersData = ref({ fulfilled: 187, goal: 200 })
-    const fillRate = ref(96.8)
+    // 出荷完了の目標は全期間 200 件、単月は 200 ÷ 12 を丸めた 17 件
+    const ordersData = computed(() => ({
+      fulfilled: statusData.value.delivered,
+      goal: selectedPeriod.value === 'all' ? 200 : Math.round(200 / 12)
+    }))
+
+    // 注文充足率 = (Delivered + Shipped) ÷ 全注文 × 100。注文 0 件なら null
+    const fillRate = computed(() => {
+      const total = allOrders.value.length
+      if (total === 0) return null
+      return ((statusData.value.delivered + statusData.value.shipped) / total) * 100
+    })
+
+    // 平均処理時間は Delivered の (actual_delivery − order_date) の平均日数。算出できなければ null
+    const avgProcessingDays = computed(() => {
+      const days = allOrders.value
+        .filter(o => o.status.toLowerCase() === 'delivered' && o.order_date && o.actual_delivery)
+        .map(o => (new Date(o.actual_delivery) - new Date(o.order_date)) / (1000 * 60 * 60 * 24))
+        .filter(d => !isNaN(d))
+      if (days.length === 0) return null
+      return days.reduce((sum, d) => sum + d, 0) / days.length
+    })
+
+    // 在庫回転率は定義をクライアントに確認するまで計算しない
+    const pendingLabel = computed(() => (currentLocale.value === 'ja' ? '— (定義を確認中)' : '— (definition pending)'))
 
     const revenueGoal = computed(() => {
       // $800K per month, so if looking at all months (12 months), goal is 12 * 800K = 9.6M
@@ -582,6 +605,7 @@ export default {
     }
 
     const calculatePercentage = (value, goal) => {
+      if (!goal) return '0.00'
       return ((value / goal) * 100).toFixed(2)
     }
 
@@ -686,6 +710,8 @@ export default {
       summary,
       ordersData,
       fillRate,
+      avgProcessingDays,
+      pendingLabel,
       statusData,
       orderHealthMetrics,
       categoryData,
