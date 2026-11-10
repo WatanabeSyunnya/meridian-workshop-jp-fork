@@ -343,10 +343,11 @@ export default {
       goal: selectedPeriod.value === 'all' ? 200 : Math.round(200 / 12)
     }))
 
-    // 注文充足率 = (Delivered + Shipped) ÷ 全注文 × 100。注文 0 件なら null
+    // 注文充足率 = (Delivered + Shipped) ÷ 全注文 × 100。注文 0 件、またはステータスで絞っているときは null
+    // （ステータスで絞ると「全注文」が成り立たず、Delivered なら常に 100% になるため）
     const fillRate = computed(() => {
       const total = allOrders.value.length
-      if (total === 0) return null
+      if (total === 0 || selectedStatus.value !== 'all') return null
       return ((statusData.value.delivered + statusData.value.shipped) / total) * 100
     })
 
@@ -586,7 +587,7 @@ export default {
         loading.value = true
         const filters = getCurrentFilters()
 
-        const [summaryData, ordersData, inventoryData, backlogData] = await Promise.all([
+        const [summaryData, ordersResult, inventoryData, backlogData] = await Promise.all([
           api.getDashboardSummary(filters),
           api.getOrders(filters),
           api.getInventory(filters),
@@ -594,7 +595,7 @@ export default {
         ])
 
         summary.value = summaryData
-        allOrders.value = ordersData
+        allOrders.value = ordersResult
         inventoryItems.value = inventoryData
         allBacklogItems.value = backlogData
       } catch (err) {
